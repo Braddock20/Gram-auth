@@ -1,42 +1,50 @@
 import logging
-import sys
-
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 from .config import load_settings
-from .instagram_auth import InstagramAuth
+from .auth import AuthManager
 
+s = load_settings()
+logging.basicConfig(level=getattr(logging, s.log_level, logging.INFO),
+                    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 
-def main() -> int:
-    settings = load_settings()
+app = FastAPI(title="Instagram Authentication Service", version="1.0.0")
+auth = AuthManager(s.username, s.password, s.session_file)
 
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level, logging.INFO),
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+class VerifyRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=32)
 
-    auth = InstagramAuth(
-        username=settings.username,
-        password=settings.password,
-        session_file=settings.session_file,
-    )
+@app.get("/")
+def root():
+    return {"ok": True, "service": "instagram-auth", "state": auth.status()["state"]}
 
-    if len(sys.argv) > 1 and sys.argv[1].lower() == "status":
-        print(auth.status())
-        return 0
+@app.get("/health")
+def health():
+    return {"ok": True, "service": "instagram-auth"}
 
-    try:
-        client = auth.login()
+@app.get("/auth/status")
+def status():
+    return auth.status()
 
-        # Minimal proof that we have an authenticated client.
-        print("AUTHENTICATED")
-        print(f"username={settings.username}")
-        print(f"session_saved={settings.session_file.exists()}")
-        print(f"client_ready={client is not None}")
-        return 0
+@app.post("/auth/login")
+def login():
+    result = auth.login()
+    if result["state"] == "RATE_LIMITED":
+        raise HTTPException(429, result)
+    return result
 
-    except RuntimeError as exc:
-        logging.getLogger("instagram-auth").error("%s", exc)
-        return 1
+@app.post("/auth/verify")
+def verify(body: VerifyRequest):
+    result = auth.login(body.code.strip())
+    if result["state"] == "RATE_LIMITED":
+        raise HTTPException(429, result)
+    return result
 
+@app.post("/auth/logout")
+def logout():
+    auth.logout()
+    return auth.status()
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    uvicorn.run("app.main:app", host=s.host, port=s.port)
