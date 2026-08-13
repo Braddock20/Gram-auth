@@ -11,25 +11,20 @@ class Settings:
     username: str
     password: str
     session_file: Path
-    log_level: str = "INFO"
+    host: str
+    port: int
+    log_level: str
 
-def load_settings() -> Settings:
+def load_settings():
     username = os.getenv("INSTAGRAM_USERNAME", "").strip()
     password = os.getenv("INSTAGRAM_PASSWORD", "")
-    session_file = Path(os.getenv(
-        "INSTAGRAM_SESSION_FILE", "sessions/instagram.json"
-    ))
-    if not session_file.is_absolute():
-        session_file = ROOT / session_file
-
+    raw = os.getenv("INSTAGRAM_SESSION_FILE", "sessions/instagram.json")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = ROOT / path
     if not username or not password:
-        raise RuntimeError(
-            "Missing INSTAGRAM_USERNAME or INSTAGRAM_PASSWORD in .env"
-        )
-
-    return Settings(
-        username=username,
-        password=password,
-        session_file=session_file,
-        log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    )
+        raise RuntimeError("INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD must be set.")
+    return Settings(username, password, path,
+                    os.getenv("HOST", "0.0.0.0"),
+                    int(os.getenv("PORT", "10000")),
+                    os.getenv("LOG_LEVEL", "INFO").upper())
